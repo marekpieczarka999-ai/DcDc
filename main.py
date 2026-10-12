@@ -2681,7 +2681,7 @@ if not TOKEN:
 from google.genai import types
 
 # =========================================================
-# KONFIGURACJA
+# KONFIGURACJA WERYFIKACJI SUBSKRYPCJI
 # =========================================================
 
 load_dotenv()
@@ -2767,6 +2767,10 @@ pending_users = {
 review_locks = set()
 persistent_view_registered = False
 
+# ID wiadomości, które już zostały obsłużone. Chroni przed
+# podwójnym uruchomieniem obsługi dla tej samej wiadomości.
+processed_submission_ids: set[int] = set()
+
 
 def save_pending_reviews():
     temp_file = PENDING_FILE.with_suffix(".tmp")
@@ -2782,20 +2786,21 @@ def save_pending_reviews():
     temp_file.replace(PENDING_FILE)
 
 
+def release_user_if_no_pending(user_id: int):
+    """Zdejmuje blokadę użytkownika, jeśli nie ma już jego zgłoszeń."""
+
+    if not any(
+            int(item.get("user_id", 0)) == user_id
+            for item in pending_reviews.values()
+    ):
+        pending_users.discard(user_id)
+
+
 def remove_pending_review(review_id: str):
     record = pending_reviews.pop(review_id, None)
 
     if record is not None:
-        user_id = int(record["user_id"])
-
-        # Nie usuwaj blokady użytkownika, jeśli istnieje
-        # inne oczekujące zgłoszenie tego samego użytkownika.
-        if not any(
-                int(item.get("user_id", 0)) == user_id
-                for item in pending_reviews.values()
-        ):
-            pending_users.discard(user_id)
-
+        release_user_if_no_pending(int(record["user_id"]))
         save_pending_reviews()
 
 
@@ -2919,7 +2924,10 @@ async def show_accepted_panel(
 # ANALIZA SCREENA PRZEZ GEMINI
 # =========================================================
 
-async def analyze_screenshot(image_bytes: bytes) -> dict:
+async def analyze_screenshot(
+        image_bytes: bytes,
+        mime_type: str = "image/jpeg",
+) -> dict:
     prompt = """
 Przeanalizuj zrzut ekranu dotyczący subskrypcji kanału YouTube.
 
@@ -2962,7 +2970,7 @@ Zasady:
             contents=[
                 types.Part.from_bytes(
                     data=image_bytes,
-                    mime_type="image/jpeg",
+                    mime_type=mime_type,
                 ),
                 prompt,
             ],
@@ -3033,6 +3041,7 @@ async def upload_review_screenshot(
     message = await channel.send(
         content=f"📎 Screen zgłoszenia użytkownika {member.mention}",
         file=file,
+        allowed_mentions=discord.AllowedMentions.none(),
     )
 
     return message.attachments[0].url
@@ -3067,13 +3076,13 @@ def make_review_embed(
 
     embed.add_field(
         name="Opis zdjęcia",
-        value=analysis["reason"][:1024],
+        value=analysis["reason"][:1024] or "Brak opisu.",
         inline=False,
     )
 
     embed.add_field(
         name="Kanał",
-        value=analysis["channel"][:1024],
+        value=analysis["channel"][:1024] or "Nie można odczytać",
         inline=True,
     )
 
@@ -3105,7 +3114,7 @@ def make_review_embed(
 
     embed.add_field(
         name="Godzina",
-        value=analysis["time_visible"][:1024],
+        value=analysis["time_visible"][:1024] or "Nie można odczytać",
         inline=True,
     )
 
@@ -3129,50 +3138,54 @@ class ReviewView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    async def interaction_check(
+            self,
+            interaction: discord.Interaction,
+    ) -> bool:
+        async def deny(message: str) -> bool:
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        message,
+                        ephemeral=True,
+                    )
+                else:
+                    await interaction.response.send_message(
+                        message,
+                        ephemeral=True,
+                    )
+            except discord.HTTPException:
+                pass
 
-async def interaction_check(
-        self,
-        interaction: discord.Interaction,
-) -> bool:
-    async def deny(message: str) -> bool:
-        try:
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    message,
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(
-                    message,
-                    ephemeral=True,
-                )
-        except discord.HTTPException:
-            pass
+            return False
 
-        return False
+        if not isinstance(interaction.user, discord.Member):
+            return await deny(
+                "Nie można sprawdzić Twoich uprawnień."
+            )
 
-    if not isinstance(interaction.user, discord.Member):
-        return await deny(
-            "Nie można sprawdzić Twoich uprawnień."
-        )
-
-    if not any(
+        is_admin = (
+                interaction.user.guild_permissions.administrator
+                or any(
             role.id == ADMIN_ROLE_ID
             for role in interaction.user.roles
-    ):
-        return await deny(
-            "Nie masz uprawnień do rozpatrywania zgłoszeń."
+        )
         )
 
-    if (
-            interaction.message is None
-            or str(interaction.message.id) not in pending_reviews
-    ):
-        return await deny(
-            "To zgłoszenie nie jest już aktywne."
-        )
+        if not is_admin:
+            return await deny(
+                "Nie masz uprawnień do rozpatrywania zgłoszeń."
+            )
 
-    return True
+        if (
+                interaction.message is None
+                or str(interaction.message.id) not in pending_reviews
+        ):
+            return await deny(
+                "To zgłoszenie nie jest już aktywne."
+            )
+
+        return True
 
     async def finish_review(
             self,
@@ -3294,7 +3307,9 @@ async def interaction_check(
                 view=None,
             )
 
-            remove_pending_review(review_id)
+            # Zgłoszenie jest już usunięte z pending_reviews,
+            # więc tylko zdejmujemy blokadę użytkownika.
+            release_user_if_no_pending(user_id)
 
             await interaction.followup.send(
                 f"Zgłoszenie rozpatrzone: {decision}",
@@ -3385,6 +3400,16 @@ async def verification_on_message(message: discord.Message):
     if not message.attachments:
         return
 
+    # Każda wiadomość jest obsługiwana tylko raz.
+    if message.id in processed_submission_ids:
+        return
+
+    processed_submission_ids.add(message.id)
+
+    if len(processed_submission_ids) > 1000:
+        processed_submission_ids.clear()
+        processed_submission_ids.add(message.id)
+
     image_attachment = next(
         (
             attachment
@@ -3437,6 +3462,11 @@ async def verification_on_message(message: discord.Message):
             return
 
         member = message.author
+        mime_type = (
+            (image_attachment.content_type or "image/jpeg")
+            .split(";")[0]
+            .lower()
+        )
 
         # Tworzymy jeden panel DM; później tylko go edytujemy.
         try:
@@ -3460,7 +3490,7 @@ async def verification_on_message(message: discord.Message):
             )
             return
 
-        analysis = await analyze_screenshot(image_bytes)
+        analysis = await analyze_screenshot(image_bytes, mime_type)
 
         passed_checks = (
             analysis["subscribed"]
@@ -3496,7 +3526,11 @@ async def verification_on_message(message: discord.Message):
                             member,
                         )
 
-                        await message.delete()
+                        try:
+                            await message.delete()
+                        except discord.HTTPException:
+                            pass
+
                         return
 
                     except discord.HTTPException:
@@ -3504,7 +3538,67 @@ async def verification_on_message(message: discord.Message):
                             "Automatyczne nadanie roli nie powiodło się"
                         )
 
-        # Ręczna weryfikacja przez administratora.
+        # -------------------------------------------------
+        # Ręczna weryfikacja: wysyłamy screen na kanał adminów
+        # -------------------------------------------------
+        try:
+            review_channel = await get_review_channel()
+
+            screenshot_url = await upload_review_screenshot(
+                review_channel,
+                member,
+                image_bytes,
+                image_attachment.filename or "screenshot.png",
+            )
+
+            review_message = await review_channel.send(
+                content=(
+                    f"<@&{ADMIN_ROLE_ID}>" if ADMIN_ROLE_ID else None
+                ),
+                embed=make_review_embed(
+                    member,
+                    analysis,
+                    screenshot_url,
+                ),
+                view=ReviewView(),
+                allowed_mentions=discord.AllowedMentions(
+                    roles=True,
+                    users=False,
+                    everyone=False,
+                ),
+            )
+
+        except Exception:
+            logger.exception(
+                "Nie udało się wysłać zgłoszenia na kanał administracyjny"
+            )
+
+            try:
+                await update_user_status(
+                    status_message=status_message,
+                    member=member,
+                    title="Błąd zgłoszenia",
+                    description=(
+                        "Nie udało się przekazać zgłoszenia administracji. "
+                        "Spróbuj wysłać screen ponownie za chwilę."
+                    ),
+                    status="Błąd ❌",
+                )
+            except discord.HTTPException:
+                pass
+
+            return
+
+        # Zapisujemy zgłoszenie, żeby przyciski działały także po restarcie.
+        pending_reviews[str(review_message.id)] = {
+            "user_id": user_id,
+            "guild_id": message.guild.id,
+            "dm_channel_id": status_message.channel.id,
+            "status_message_id": status_message.id,
+        }
+        pending_users.add(user_id)
+        save_pending_reviews()
+
         await update_user_status(
             status_message=status_message,
             member=member,
@@ -3515,6 +3609,12 @@ async def verification_on_message(message: discord.Message):
             ),
             status="Oczekuje na weryfikację ⏳",
         )
+
+        # Kopia screena jest już na kanale adminów, więc usuwamy oryginał.
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
 
     except discord.Forbidden:
         logger.exception("Brak uprawnień Discord")
@@ -3543,7 +3643,6 @@ async def verification_on_message(message: discord.Message):
 
     finally:
         review_locks.discard(user_id)
-
 
 
 # =========================================================
