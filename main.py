@@ -11,6 +11,8 @@ import json
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from google import genai
+from flask import Flask
+from threading import Thread
 
 
 import discord
@@ -3574,5 +3576,26 @@ async def verification_on_message(message: discord.Message):
 # =========================================================
 # URUCHOMIENIE
 # =========================================================
+
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Bot Discord działa!", 200
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+def keep_alive():
+    server = Thread(target=run_web, daemon=True)
+    server.start()
+
+keep_alive()
+
+
+
+
 
 bot.run(DISCORD_TOKEN)
