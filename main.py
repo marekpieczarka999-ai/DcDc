@@ -14,12 +14,10 @@ from google import genai
 from flask import Flask
 from threading import Thread
 
-
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from pathlib import Path
-
 
 # =========================================================
 # KONFIGURACJA
@@ -96,7 +94,6 @@ TICKET_CATEGORIES = [
     },
 ]
 
-
 # =========================================================
 # INTENTS
 # =========================================================
@@ -112,8 +109,8 @@ intents.message_content = True
 
 def is_support(member: discord.Member) -> bool:
     return (
-        member.guild_permissions.administrator
-        or any(role.id == SUPPORT_ROLE_ID for role in member.roles)
+            member.guild_permissions.administrator
+            or any(role.id == SUPPORT_ROLE_ID for role in member.roles)
     )
 
 
@@ -172,8 +169,8 @@ def get_ticket_metadata(channel: discord.TextChannel):
 
 
 async def find_open_ticket(
-    guild: discord.Guild,
-    member_id: int,
+        guild: discord.Guild,
+        member_id: int,
 ):
     category = guild.get_channel(TICKET_CATEGORY_ID)
 
@@ -190,8 +187,8 @@ async def find_open_ticket(
 
 
 async def interaction_reply(
-    interaction: discord.Interaction,
-    content: str,
+        interaction: discord.Interaction,
+        content: str,
 ):
     if interaction.response.is_done():
         await interaction.followup.send(content, ephemeral=True)
@@ -313,8 +310,8 @@ async def delete_if_forbidden_link(message: discord.Message) -> bool:
     author = message.author
 
     if (
-        isinstance(author, discord.Member)
-        and any(role.id == LINK_ALLOWED_ROLE_ID for role in author.roles)
+            isinstance(author, discord.Member)
+            and any(role.id == LINK_ALLOWED_ROLE_ID for role in author.roles)
     ):
         return False
 
@@ -363,8 +360,8 @@ class VerificationModal(discord.ui.Modal, title="Weryfikacja DriftCode"):
 
     async def on_submit(self, interaction: discord.Interaction):
         if (
-            not interaction.guild
-            or not isinstance(interaction.user, discord.Member)
+                not interaction.guild
+                or not isinstance(interaction.user, discord.Member)
         ):
             await interaction.response.send_message(
                 "Nie udało się odczytać serwera.",
@@ -478,10 +475,9 @@ class VerificationView(discord.ui.LayoutView):
 # =========================================================
 
 def make_ticket_view(
-    channel: discord.TextChannel,
-    metadata: dict | None,
+        channel: discord.TextChannel,
+        metadata: dict | None,
 ) -> discord.ui.LayoutView:
-
     if not metadata:
         return TicketManagementView()
 
@@ -546,8 +542,8 @@ def make_ticket_view(
 
 
 async def update_ticket_message(
-    channel: discord.TextChannel,
-    metadata: dict,
+        channel: discord.TextChannel,
+        metadata: dict,
 ):
     view = make_ticket_view(channel, metadata)
     bot_member = channel.guild.me
@@ -557,11 +553,11 @@ async def update_ticket_message(
 
     async for message in channel.history(limit=50, oldest_first=True):
         if (
-            message.author.id == bot_member.id
-            and component_has_custom_id(
-                message.components,
-                TICKET_MANAGEMENT_SELECT_ID,
-            )
+                message.author.id == bot_member.id
+                and component_has_custom_id(
+            message.components,
+            TICKET_MANAGEMENT_SELECT_ID,
+        )
         ):
             await message.edit(view=view)
             return
@@ -584,8 +580,8 @@ TRANSCRIPT_TZ = _load_transcript_timezone()
 
 
 def format_transcript_time(
-    value: datetime,
-    pattern: str = "%d.%m.%Y %H:%M",
+        value: datetime,
+        pattern: str = "%d.%m.%Y %H:%M",
 ) -> str:
     return value.astimezone(TRANSCRIPT_TZ).strftime(pattern)
 
@@ -893,16 +889,16 @@ def render_embed(embed: discord.Embed, guild: discord.Guild) -> str:
         return ""
 
     return (
-        f'<div class="embed" style="border-left-color:#{colour:06x}">'
-        + "".join(parts)
-        + "</div>"
+            f'<div class="embed" style="border-left-color:#{colour:06x}">'
+            + "".join(parts)
+            + "</div>"
     )
 
 
 async def render_message_body(
-    message: discord.Message,
-    guild: discord.Guild,
-    image_budget: dict,
+        message: discord.Message,
+        guild: discord.Guild,
+        image_budget: dict,
 ) -> str:
     parts: list[str] = []
 
@@ -945,9 +941,9 @@ async def render_message_body(
         embedded = False
 
         if (
-            content_type.startswith("image/")
-            and attachment.size <= TRANSCRIPT_MAX_IMAGE_BYTES
-            and attachment.size <= image_budget["left"]
+                content_type.startswith("image/")
+                and attachment.size <= TRANSCRIPT_MAX_IMAGE_BYTES
+                and attachment.size <= image_budget["left"]
         ):
             try:
                 data = await attachment.read()
@@ -1451,7 +1447,6 @@ footer b { color: var(--red); }
 }
 """
 
-
 TRANSCRIPT_JS = """
 (function () {
     var $ = function (s) { return document.querySelector(s); };
@@ -1522,9 +1517,9 @@ TRANSCRIPT_JS = """
 
 
 async def build_ticket_transcript(
-    channel: discord.TextChannel,
-    metadata: dict,
-    closed_by,
+        channel: discord.TextChannel,
+        metadata: dict,
+        closed_by,
 ) -> bytes:
     guild = channel.guild
     image_budget = {"left": TRANSCRIPT_MAX_TOTAL_IMAGE_BYTES}
@@ -1538,8 +1533,8 @@ async def build_ticket_transcript(
         created = format_transcript_time(message.created_at)
 
         if message.type not in (
-            discord.MessageType.default,
-            discord.MessageType.reply,
+                discord.MessageType.default,
+                discord.MessageType.reply,
         ):
             system_text = html.escape(message.system_content or "")
 
@@ -1562,9 +1557,9 @@ async def build_ticket_transcript(
         participants.add(author.id)
 
         grouped = (
-            previous is not None
-            and previous.author.id == author.id
-            and (message.created_at - previous.created_at).total_seconds() < 420
+                previous is not None
+                and previous.author.id == author.id
+                and (message.created_at - previous.created_at).total_seconds() < 420
         )
 
         previous = message
@@ -1690,8 +1685,8 @@ async def build_ticket_transcript(
 
 
 def make_transcript_view(
-    filename: str | None = None,
-    download_url: str | None = None,
+        filename: str | None = None,
+        download_url: str | None = None,
 ) -> discord.ui.LayoutView:
     items = [
         discord.ui.TextDisplay(
@@ -1734,9 +1729,9 @@ def make_transcript_view(
 
 
 async def send_transcript_dm(
-    user,
-    transcript_bytes: bytes,
-    filename: str,
+        user,
+        transcript_bytes: bytes,
+        filename: str,
 ):
     try:
         message = await user.send(
@@ -1758,11 +1753,11 @@ async def send_transcript_dm(
 
 
 async def deliver_transcript(
-    guild: discord.Guild,
-    metadata: dict,
-    closed_by,
-    transcript_bytes: bytes,
-    filename: str,
+        guild: discord.Guild,
+        metadata: dict,
+        closed_by,
+        transcript_bytes: bytes,
+        filename: str,
 ):
     recipients = [closed_by]
 
@@ -1807,8 +1802,8 @@ class TicketDescriptionModal(
 
     async def on_submit(self, interaction: discord.Interaction):
         if (
-            not interaction.guild
-            or not isinstance(interaction.user, discord.Member)
+                not interaction.guild
+                or not isinstance(interaction.user, discord.Member)
         ):
             await interaction.response.send_message(
                 "Nie udało się odczytać serwera.",
@@ -2006,8 +2001,8 @@ class TicketCategorySelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if (
-            not interaction.guild
-            or not isinstance(interaction.user, discord.Member)
+                not interaction.guild
+                or not isinstance(interaction.user, discord.Member)
         ):
             await interaction_reply(
                 interaction,
@@ -2342,9 +2337,9 @@ class TicketManagementSelect(discord.ui.Select):
                     reason=f"Ticket zamknięty przez Support: {interaction.user}"
                 )
             except (
-                discord.NotFound,
-                discord.Forbidden,
-                discord.HTTPException,
+                    discord.NotFound,
+                    discord.Forbidden,
+                    discord.HTTPException,
             ):
                 return
 
@@ -2487,9 +2482,9 @@ class DriftCodeBot(commands.Bot):
         await self.process_commands(message)
 
     async def on_message_edit(
-        self,
-        before: discord.Message,
-        after: discord.Message,
+            self,
+            before: discord.Message,
+            after: discord.Message,
     ):
         # Zabezpieczenie przed dodaniem linku przez edycję wiadomości.
         await delete_if_forbidden_link(after)
@@ -2498,9 +2493,9 @@ class DriftCodeBot(commands.Bot):
         await self.wait_until_ready()
 
         # --- USTAWIENIA TEMPA (możesz zmieniać) ---
-        TYPING_DELAY = 1   # sekundy między "dopisaniem" kolejnych liter
-        CHARS_PER_STEP = 150   # ile liter dopisuje się naraz
-        HOLD_TIME = 3      # jak długo gotowy tekst wisi w statusie
+        TYPING_DELAY = 1  # sekundy między "dopisaniem" kolejnych liter
+        CHARS_PER_STEP = 150  # ile liter dopisuje się naraz
+        HOLD_TIME = 3  # jak długo gotowy tekst wisi w statusie
 
         while not self.is_closed():
             member_count = sum(
@@ -2540,8 +2535,8 @@ class DriftCodeBot(commands.Bot):
                 continue
 
             if component_has_custom_id(
-                message.components,
-                VERIFY_BUTTON_ID,
+                    message.components,
+                    VERIFY_BUTTON_ID,
             ):
                 return message
 
@@ -2571,8 +2566,8 @@ class DriftCodeBot(commands.Bot):
                 continue
 
             if component_has_custom_id(
-                message.components,
-                TICKET_SELECT_ID,
+                    message.components,
+                    TICKET_SELECT_ID,
             ):
                 return message
 
@@ -2683,18 +2678,7 @@ if not TOKEN:
         "Brak tokenu bota. Ustaw DISCORD_TOKEN w pliku .env."
     )
 
-
-
-
-
-
-
-
-
-
-
 from google.genai import types
-
 
 # =========================================================
 # KONFIGURACJA
@@ -2807,8 +2791,8 @@ def remove_pending_review(review_id: str):
         # Nie usuwaj blokady użytkownika, jeśli istnieje
         # inne oczekujące zgłoszenie tego samego użytkownika.
         if not any(
-            int(item.get("user_id", 0)) == user_id
-            for item in pending_reviews.values()
+                int(item.get("user_id", 0)) == user_id
+                for item in pending_reviews.values()
         ):
             pending_users.discard(user_id)
 
@@ -2827,10 +2811,10 @@ gemini = genai.Client(api_key=GEMINI_API_KEY)
 # =========================================================
 
 def make_panel(
-    member: discord.abc.User,
-    title: str,
-    description: str,
-    status: str,
+        member: discord.abc.User,
+        title: str,
+        description: str,
+        status: str,
 ) -> discord.ui.LayoutView:
     view = discord.ui.LayoutView(timeout=None)
 
@@ -2868,8 +2852,8 @@ def make_panel(
 
 
 async def send_temporary_status_notification(
-    member: discord.abc.User,
-    status: str,
+        member: discord.abc.User,
+        status: str,
 ):
     try:
         notification = await member.send(
@@ -2891,11 +2875,11 @@ async def send_temporary_status_notification(
 
 
 async def update_user_status(
-    status_message: discord.Message,
-    member: discord.abc.User,
-    title: str,
-    description: str,
-    status: str,
+        status_message: discord.Message,
+        member: discord.abc.User,
+        title: str,
+        description: str,
+        status: str,
 ):
     # Edytujemy ten sam panel DM.
     await status_message.edit(
@@ -2913,8 +2897,8 @@ async def update_user_status(
 
 
 async def show_accepted_panel(
-    status_message: discord.Message,
-    member: discord.abc.User,
+        status_message: discord.Message,
+        member: discord.abc.User,
 ):
     await update_user_status(
         status_message=status_message,
@@ -3036,10 +3020,10 @@ async def get_review_channel() -> discord.TextChannel:
 
 
 async def upload_review_screenshot(
-    channel: discord.TextChannel,
-    member: discord.abc.User,
-    image_bytes: bytes,
-    filename: str,
+        channel: discord.TextChannel,
+        member: discord.abc.User,
+        image_bytes: bytes,
+        filename: str,
 ) -> str:
     file = discord.File(
         io.BytesIO(image_bytes),
@@ -3059,9 +3043,9 @@ async def upload_review_screenshot(
 # =========================================================
 
 def make_review_embed(
-    member: discord.abc.User,
-    analysis: dict,
-    screenshot_url: str,
+        member: discord.abc.User,
+        analysis: dict,
+        screenshot_url: str,
 ) -> discord.Embed:
     embed = discord.Embed(
         title="📩 SS oczekuje na weryfikację",
@@ -3145,10 +3129,10 @@ class ReviewView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    
+
 async def interaction_check(
-    self,
-    interaction: discord.Interaction,
+        self,
+        interaction: discord.Interaction,
 ) -> bool:
     async def deny(message: str) -> bool:
         try:
@@ -3173,16 +3157,16 @@ async def interaction_check(
         )
 
     if not any(
-        role.id == ADMIN_ROLE_ID
-        for role in interaction.user.roles
+            role.id == ADMIN_ROLE_ID
+            for role in interaction.user.roles
     ):
         return await deny(
             "Nie masz uprawnień do rozpatrywania zgłoszeń."
         )
 
     if (
-        interaction.message is None
-        or str(interaction.message.id) not in pending_reviews
+            interaction.message is None
+            or str(interaction.message.id) not in pending_reviews
     ):
         return await deny(
             "To zgłoszenie nie jest już aktywne."
@@ -3190,11 +3174,10 @@ async def interaction_check(
 
     return True
 
-
     async def finish_review(
-        self,
-        interaction: discord.Interaction,
-        approved: bool,
+            self,
+            interaction: discord.Interaction,
+            approved: bool,
     ):
         review_message = interaction.message
 
@@ -3338,9 +3321,9 @@ async def interaction_check(
         custom_id="verification:approve",
     )
     async def approve(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
+            self,
+            interaction: discord.Interaction,
+            button: discord.ui.Button,
     ):
         await self.finish_review(interaction, approved=True)
 
@@ -3351,9 +3334,9 @@ async def interaction_check(
         custom_id="verification:reject",
     )
     async def reject(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,
+            self,
+            interaction: discord.Interaction,
+            button: discord.ui.Button,
     ):
         await self.finish_review(interaction, approved=False)
 
@@ -3384,6 +3367,7 @@ async def verification_on_ready():
 # =========================================================
 # Komendy (!test) przetwarza już on_message z DriftCodeBot,
 # więc tutaj nie wywołujemy process_commands.
+
 
 @bot.listen("on_message")
 async def verification_on_message(message: discord.Message):
@@ -3532,54 +3516,17 @@ async def verification_on_message(message: discord.Message):
             status="Oczekuje na weryfikację ⏳",
         )
 
-        
-review_channel = await get_review_channel()
-
-filename = f"verification-{user_id}.jpg"
-
-embed = make_review_embed(
-    member=member,
-    analysis=analysis,
-    screenshot_url=f"attachment://{filename}",
-)
-
-review_message = await review_channel.send(
-    embed=embed,
-    file=discord.File(
-        io.BytesIO(image_bytes),
-        filename=filename,
-    ),
-    view=ReviewView(),
-)
-
-
-        embed = make_review_embed(
-            member=member,
-            analysis=analysis,
-            screenshot_url=screenshot_url,
-        )
-
-        # Wysyłamy trwały widok.
-        review_message = await review_channel.send(
-            embed=embed,
-            view=ReviewView(),
-        )
-
-        # Zapisujemy identyfikatory potrzebne do odzyskania panelu DM.
-        pending_reviews[str(review_message.id)] = {
-            "user_id": member.id,
-            "guild_id": message.guild.id,
-            "dm_channel_id": status_message.channel.id,
-            "status_message_id": status_message.id,
-        }
-
-        save_pending_reviews()
-        pending_users.add(user_id)
-
-        await message.delete()
-
     except discord.Forbidden:
         logger.exception("Brak uprawnień Discord")
+
+        try:
+            await message.reply(
+                "❌ Bot nie ma wymaganych uprawnień Discord.",
+                delete_after=8,
+                mention_author=False,
+            )
+        except discord.HTTPException:
+            pass
 
     except Exception:
         logger.exception("Błąd podczas obsługi zgłoszenia")
@@ -3598,6 +3545,7 @@ review_message = await review_channel.send(
         review_locks.discard(user_id)
 
 
+
 # =========================================================
 # URUCHOMIENIE
 # =========================================================
@@ -3605,22 +3553,22 @@ review_message = await review_channel.send(
 
 app = Flask(__name__)
 
+
 @app.route("/")
 def home():
     return "Bot Discord działa!", 200
+
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
+
 def keep_alive():
     server = Thread(target=run_web, daemon=True)
     server.start()
 
+
 keep_alive()
-
-
-
-
 
 bot.run(DISCORD_TOKEN)
