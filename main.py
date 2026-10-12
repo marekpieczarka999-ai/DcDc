@@ -3384,6 +3384,44 @@ async def verification_on_ready():
 # więc tutaj nie wywołujemy process_commands.
 
 
+async def _delete_later(message: discord.Message, delay: int):
+    await asyncio.sleep(delay)
+
+    try:
+        await message.delete()
+    except discord.HTTPException:
+        pass
+
+
+async def notify_user(message: discord.Message, text: str, delay: int = 10):
+    """Powiadomienie widoczne tylko dla autora wiadomości.
+
+    Discord nie pozwala na wiadomości "ephemeral" w odpowiedzi na zwykłą
+    wiadomość, więc wysyłamy prywatną wiadomość (DM), która sama znika.
+    Jeśli użytkownik ma zamknięte DM, bot wysyła krótką wiadomość
+    na kanale i szybko ją usuwa.
+    """
+
+    try:
+        note = await message.author.send(text)
+        asyncio.create_task(_delete_later(note, delay))
+        return
+
+    except discord.HTTPException:
+        pass
+
+    try:
+        await message.channel.send(
+            f"{message.author.mention} {text}",
+            delete_after=5,
+            allowed_mentions=discord.AllowedMentions(
+                users=[message.author],
+            ),
+        )
+    except discord.HTTPException:
+        pass
+
+
 @bot.listen("on_message")
 async def verification_on_message(message: discord.Message):
     if message.author.bot:
@@ -3427,48 +3465,51 @@ async def verification_on_message(message: discord.Message):
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
 
-        try:
-            await message.channel.send(
-                f"{message.author.mention} ❌ Na tym kanale możesz "
-                f"wysyłać tylko zdjęcia (screen subskrypcji).",
-                delete_after=5,
-                allowed_mentions=discord.AllowedMentions(
-                    users=[message.author],
-                ),
-            )
-        except discord.HTTPException:
-            pass
+        await notify_user(
+            message,
+            "❌ Na tym kanale możesz wysyłać tylko zdjęcia "
+            "(screen subskrypcji).",
+        )
 
         return
 
     user_id = message.author.id
 
     if user_id in review_locks or user_id in pending_users:
-        await message.reply(
+        await notify_user(
+            message,
             "⏳ Masz już zgłoszenie w trakcie weryfikacji.",
-            delete_after=5,
-            mention_author=False,
         )
+
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
+
         return
 
     review_locks.add(user_id)
 
     try:
         if image_attachment.size > MAX_IMAGE_SIZE:
-            await message.reply(
+            await notify_user(
+                message,
                 "❌ Zdjęcie jest za duże. Maksymalny rozmiar to 10 MB.",
-                delete_after=7,
-                mention_author=False,
             )
+
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                pass
+
             return
 
         try:
             image_bytes = await image_attachment.read()
         except discord.HTTPException:
-            await message.reply(
+            await notify_user(
+                message,
                 "❌ Nie udało się pobrać zdjęcia. Spróbuj ponownie.",
-                delete_after=5,
-                mention_author=False,
             )
             return
 
@@ -3631,10 +3672,9 @@ async def verification_on_message(message: discord.Message):
         logger.exception("Brak uprawnień Discord")
 
         try:
-            await message.reply(
+            await notify_user(
+                message,
                 "❌ Bot nie ma wymaganych uprawnień Discord.",
-                delete_after=8,
-                mention_author=False,
             )
         except discord.HTTPException:
             pass
@@ -3643,11 +3683,10 @@ async def verification_on_message(message: discord.Message):
         logger.exception("Błąd podczas obsługi zgłoszenia")
 
         try:
-            await message.reply(
+            await notify_user(
+                message,
                 "❌ Wystąpił błąd podczas przetwarzania zgłoszenia. "
                 "Spróbuj ponownie później.",
-                delete_after=8,
-                mention_author=False,
             )
         except discord.HTTPException:
             pass
