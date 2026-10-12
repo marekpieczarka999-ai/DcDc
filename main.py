@@ -2929,27 +2929,61 @@ async def analyze_screenshot(
         mime_type: str = "image/jpeg",
 ) -> dict:
     prompt = """
-Przeanalizuj zrzut ekranu dotyczący subskrypcji kanału YouTube.
+Przeanalizuj zrzut ekranu dotyczący subskrypcji kanału YouTube
+(strona kanału, film, aplikacja mobilna lub przeglądarka; interfejs może być
+po polsku albo po angielsku).
 
 Zwróć wyłącznie poprawny JSON:
 {
   "channel": "nazwa kanału albo Nie można odczytać",
   "subscribed": false,
-  "bell_enabled": false,
+  "bell_state": "all | personalized | none | unknown",
+  "bell_evidence": "co dokładnie widać przy dzwoneczku",
   "readable": false,
   "time_visible": "godzina albo Nie można odczytać",
   "reason": "krótki opis",
   "confidence": 0.0
 }
 
-Zasady:
-- subscribed=true tylko przy czytelnym dowodzie subskrypcji.
-- bell_enabled=true tylko przy czytelnym dowodzie włączonych
-  powiadomień dla kanału.
-- readable=true tylko jeśli istotne elementy można odczytać.
+SUBSKRYPCJA:
+- subscribed=true, gdy przy kanale widać przycisk "Subskrybujesz" /
+  "Zasubskrybowano" / "Subscribed" (szary przycisk, często z dzwoneczkiem
+  i strzałką). Przycisk "Subskrybuj" / "Subscribe" (czerwony lub biały,
+  zachęcający do kliknięcia) oznacza, że subskrypcji NIE ma.
+
+DZWONECZEK (pole bell_state) - patrz uważnie na ikonę dzwonka przy
+przycisku subskrypcji:
+- "all" (Wszystkie powiadomienia): dzwonek jest WYPEŁNIONY (pełny, pełnia
+  koloru) i ma małe kreski / fale dzwonienia po bokach, jakby dzwonił.
+  Jeśli widać rozwinięte menu powiadomień, opcja "Wszystkie" / "All" ma
+  zaznaczony znacznik (ptaszek / kółko).
+- "personalized" (Spersonalizowane): dzwonek jest tylko KONTUREM (pusty
+  w środku), bez fal dzwonienia. W menu zaznaczona jest opcja
+  "Spersonalizowane" / "Personalized".
+- "none" (Brak powiadomień): dzwonek jest PRZEKREŚLONY ukośną kreską.
+  W menu zaznaczona jest opcja "Brak" / "None".
+- "unknown": dzwonka nie widać, jest zasłonięty, rozmyty albo zbyt mały,
+  aby ocenić jego wygląd.
+
+Zasady dotyczące dzwoneczka:
+- Jeśli widać rozwinięte menu z opcjami Wszystkie / Spersonalizowane /
+  Brak, decyduje opcja z zaznaczonym znacznikiem - ma to pierwszeństwo
+  przed samą ikoną.
+- Nie myl dzwonka wypełnionego z falami ("all") z samym konturem
+  ("personalized"). Wypełniony dzwonek z falami to WSZYSTKIE powiadomienia.
+- Biały lub jasny dzwonek na ciemnym tle w motywie ciemnym może być
+  wypełniony - oceniaj kształt (wypełnienie i fale), nie kolor.
+- Ustaw "all" tylko wtedy, gdy rzeczywiście widać cechy opisane wyżej.
+  Jeśli nie da się tego rozstrzygnąć, wpisz "unknown", a nie zgaduj.
+- W bell_evidence opisz krótko, co widzisz (np. "pełny dzwonek z falami po
+  bokach" albo "menu: zaznaczone Wszystkie").
+
+POZOSTAŁE ZASADY:
+- readable=true tylko jeśli istotne elementy (nazwa kanału, przycisk
+  subskrypcji, dzwonek) można odczytać.
 - Nie zgaduj nazwy kanału ani godziny.
 - reason powinien krótko opisywać widoczne elementy.
-- confidence to pewność oceny w zakresie 0.0–1.0.
+- confidence to pewność całej oceny w zakresie 0.0-1.0.
 - Nie wymyślaj niewidocznych informacji.
 """
 
@@ -2959,6 +2993,8 @@ Zasady:
         "bell_enabled": False,
         "readable": False,
         "time_visible": "Nie można odczytać",
+        "bell_state": "unknown",
+        "bell_evidence": "",
         "reason": "Nie udało się przeanalizować zdjęcia.",
         "confidence": 0.0,
     }
@@ -2976,7 +3012,7 @@ Zasady:
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                temperature=0.1,
+                temperature=0.0,
             ),
         )
 
@@ -2990,12 +3026,22 @@ Zasady:
         except (TypeError, ValueError):
             confidence = 0.0
 
+        bell_state = str(
+            data.get("bell_state", "unknown")
+        ).strip().lower()
+
+        if bell_state not in ("all", "personalized", "none", "unknown"):
+            bell_state = "unknown"
+
         return {
             "channel": str(
                 data.get("channel", "Nie można odczytać")
             ),
             "subscribed": data.get("subscribed") is True,
-            "bell_enabled": data.get("bell_enabled") is True,
+            # Dzwonek liczy się tylko przy opcji "Wszystkie powiadomienia".
+            "bell_enabled": bell_state == "all",
+            "bell_state": bell_state,
+            "bell_evidence": str(data.get("bell_evidence", ""))[:300],
             "readable": data.get("readable") is True,
             "time_visible": str(
                 data.get("time_visible", "Nie można odczytać")
@@ -3092,13 +3138,24 @@ def make_review_embed(
         inline=True,
     )
 
+    bell_labels = {
+        "all": "Wszystkie powiadomienia ✅",
+        "personalized": "Spersonalizowane ⚠️",
+        "none": "Brak powiadomień ❌",
+        "unknown": "Nie można ocenić ❓",
+    }
+
+    bell_text = bell_labels.get(
+        analysis.get("bell_state", "unknown"),
+        "Nie można ocenić ❓",
+    )
+
+    if analysis.get("bell_evidence"):
+        bell_text += f"\n*{analysis['bell_evidence'][:200]}*"
+
     embed.add_field(
         name="Dzwonek",
-        value=(
-            "Włączony ✅"
-            if analysis["bell_enabled"]
-            else "Nie ❌"
-        ),
+        value=bell_text[:1024],
         inline=True,
     )
 
