@@ -3397,9 +3397,6 @@ async def verification_on_message(message: discord.Message):
     ):
         return
 
-    if not message.attachments:
-        return
-
     # Każda wiadomość jest obsługiwana tylko raz.
     if message.id in processed_submission_ids:
         return
@@ -3422,12 +3419,26 @@ async def verification_on_message(message: discord.Message):
         None,
     )
 
+    # Na tym kanale wolno wysyłać wyłącznie zdjęcia.
+    # Tekst, linki, GIF-y, pliki i filmy są usuwane.
     if image_attachment is None:
-        await message.reply(
-            "❌ Wyślij zgłoszenie jako plik graficzny.",
-            delete_after=5,
-            mention_author=False,
-        )
+        try:
+            await message.delete()
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
+
+        try:
+            await message.channel.send(
+                f"{message.author.mention} ❌ Na tym kanale możesz "
+                f"wysyłać tylko zdjęcia (screen subskrypcji).",
+                delete_after=5,
+                allowed_mentions=discord.AllowedMentions(
+                    users=[message.author],
+                ),
+            )
+        except discord.HTTPException:
+            pass
+
         return
 
     user_id = message.author.id
