@@ -3532,14 +3532,26 @@ async def verification_on_message(message: discord.Message):
             status="Oczekuje na weryfikację ⏳",
         )
 
-        review_channel = await get_review_channel()
+        
+review_channel = await get_review_channel()
 
-        screenshot_url = await upload_review_screenshot(
-            channel=review_channel,
-            member=member,
-            image_bytes=image_bytes,
-            filename=f"verification-{user_id}.jpg",
-        )
+filename = f"verification-{user_id}.jpg"
+
+embed = make_review_embed(
+    member=member,
+    analysis=analysis,
+    screenshot_url=f"attachment://{filename}",
+)
+
+review_message = await review_channel.send(
+    embed=embed,
+    file=discord.File(
+        io.BytesIO(image_bytes),
+        filename=filename,
+    ),
+    view=ReviewView(),
+)
+
 
         embed = make_review_embed(
             member=member,
