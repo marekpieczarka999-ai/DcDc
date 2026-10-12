@@ -3145,38 +3145,51 @@ class ReviewView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    async def interaction_check(
-        self,
-        interaction: discord.Interaction,
-    ) -> bool:
-        if not isinstance(interaction.user, discord.Member):
-            await interaction.response.send_message(
-                "Nie można sprawdzić Twoich uprawnień.",
-                ephemeral=True,
-            )
-            return False
+    
+async def interaction_check(
+    self,
+    interaction: discord.Interaction,
+) -> bool:
+    async def deny(message: str) -> bool:
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    message,
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message(
+                    message,
+                    ephemeral=True,
+                )
+        except discord.HTTPException:
+            pass
 
-        if not any(
-            role.id == ADMIN_ROLE_ID
-            for role in interaction.user.roles
-        ):
-            await interaction.response.send_message(
-                "Nie masz uprawnień do rozpatrywania zgłoszeń.",
-                ephemeral=True,
-            )
-            return False
+        return False
 
-        if (
-            interaction.message is None
-            or str(interaction.message.id) not in pending_reviews
-        ):
-            await interaction.response.send_message(
-                "To zgłoszenie nie jest już aktywne.",
-                ephemeral=True,
-            )
-            return False
+    if not isinstance(interaction.user, discord.Member):
+        return await deny(
+            "Nie można sprawdzić Twoich uprawnień."
+        )
 
-        return True
+    if not any(
+        role.id == ADMIN_ROLE_ID
+        for role in interaction.user.roles
+    ):
+        return await deny(
+            "Nie masz uprawnień do rozpatrywania zgłoszeń."
+        )
+
+    if (
+        interaction.message is None
+        or str(interaction.message.id) not in pending_reviews
+    ):
+        return await deny(
+            "To zgłoszenie nie jest już aktywne."
+        )
+
+    return True
+
 
     async def finish_review(
         self,
